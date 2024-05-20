@@ -1,0 +1,53 @@
+from flask import Flask, request, jsonify
+import socket
+
+app = Flask(__name__)
+
+car_running = False  # Status do carro
+
+# IP address and port of the Arduino within the local Wi-Fi network
+ARDUINO_IP = 'arduino_local_ip_address'  # Replace with the correct IP address
+ARDUINO_PORT = 1234  # Replace with the correct port
+
+# Função para buscar a distância mediada pelo sensor
+def receive_distance_from_arduino():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.connect((ARDUINO_IP, ARDUINO_PORT))
+            data = s.recv(1024)  # Adjust buffer size as needed
+            distance = float(data.decode('utf-8').strip())
+            return distance
+        except Exception as e:
+            print(f"Error receiving distance from Arduino: {e}")
+            return None
+
+# Mandar a distância para o API
+@app.route('/distance', methods=['GET'])
+def get_distance():
+    distance = receive_distance_from_arduino()
+    if distance is not None:
+        return jsonify({'distance': distance})
+    else:
+        return jsonify({'error': 'Failed to receive distance from Arduino'})
+
+# Controlar o carro pela a app
+@app.route('/control', methods=['POST'])
+def control_car():
+    global car_running
+    action = request.json.get('action')
+    if action == 'start':
+        car_running = True
+        return jsonify({'message': 'Car started'})
+    elif action == 'stop':
+        car_running = False
+        return jsonify({'message': 'Car stopped'})
+    else:
+        return jsonify({'error': 'Invalid action'})
+
+# Buscar o status do carro atraves da app
+@app.route('/status', methods=['GET'])
+def get_car_status():
+    return jsonify({'status': 'running' if car_running else 'stopped'})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
