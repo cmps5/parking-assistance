@@ -9,16 +9,31 @@ car_running = False  # Status do carro
 ARDUINO_IP = 'arduino_local_ip_address'  # Replace with the correct IP address
 ARDUINO_PORT = 1234  # Replace with the correct port
 
+
 # Função para buscar a distância mediada pelo sensor
 def receive_distance_from_arduino():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
             s.connect((ARDUINO_IP, ARDUINO_PORT))
+            s.sendall(b'DISTANCE')  # Send a request for distance
             data = s.recv(1024)  # Adjust buffer size as needed
             distance = float(data.decode('utf-8').strip())
             return distance
         except Exception as e:
             print(f"Error receiving distance from Arduino: {e}")
+            return None
+        
+# Função para buscar a velocidade do carro
+def receive_velocity_from_arduino():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.connect((ARDUINO_IP, ARDUINO_PORT))
+            s.sendall(b'VELOCITY')  # Send a request for velocity
+            data = s.recv(1024)  # Adjust buffer size as needed
+            velocity = float(data.decode('utf-8').strip())
+            return velocity
+        except Exception as e:
+            print(f"Error receiving velocity from Arduino: {e}")
             return None
 
 # Mandar a distância para o API
@@ -30,6 +45,15 @@ def get_distance():
     else:
         return jsonify({'error': 'Failed to receive distance from Arduino'})
 
+# Mandar a velocidade para o API
+@app.route('/velocity', methods=['GET'])
+def get_velocity():
+    velocity = receive_velocity_from_arduino()
+    if velocity is not None:
+        return jsonify({'velocity': velocity})
+    else:
+        return jsonify({'error': 'Failed to receive velocity from Arduino'})
+    
 # Controlar o carro pela a app
 @app.route('/control', methods=['POST'])
 def control_car():
