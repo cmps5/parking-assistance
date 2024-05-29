@@ -8,7 +8,10 @@ const int ledPin = 13;
 long duration;
 int distance;
 int safetyDistance;
-
+int prevDistance = 0;
+unsigned long prevTime;
+unsigned long currentTime;
+float velocity;
 
 void setup() {
   pinMode(trigPin, OUTPUT);  // Sets the trigPin as an Output
@@ -16,8 +19,8 @@ void setup() {
   pinMode(buzzer, OUTPUT);
   pinMode(ledPin, OUTPUT);
   Serial.begin(9600);  // Starts the serial communication
+  prevTime = millis(); // Initialize the previous time
 }
-
 
 void loop() {
   // Clears the trigPin
@@ -35,6 +38,18 @@ void loop() {
   // Calculating the distance
   distance = duration * 0.034 / 2;
 
+  // Calculate the time difference
+  currentTime = millis();
+  unsigned long timeDiff = currentTime - prevTime;
+
+  // Calculate the velocity (change in distance over time in cm/ms converted to cm/s)
+  velocity = (prevDistance - distance) / (timeDiff / 1000.0);
+
+  // Update previous distance and time for the next calculation
+  prevDistance = distance;
+  prevTime = currentTime;
+
+  // Set the safety distance threshold and control the buzzer and LED
   safetyDistance = distance;
   if (safetyDistance <= 5) {
     digitalWrite(buzzer, HIGH);
@@ -44,8 +59,12 @@ void loop() {
     digitalWrite(ledPin, LOW);
   }
 
-  // Prints the distance on the Serial Monitor
-  Serial.print("Distance: ");
-  Serial.println(distance);
+  // Prints the distance and velocity on the Serial Monitor
+  Serial.print("Distance ");
+  Serial.print(distance);
+  Serial.print(", Velocity ");
+  Serial.println(velocity);
+  
+  // Add a short delay to avoid flooding the serial monitor and to give more accurate readings
+  delay(100);
 }
-
