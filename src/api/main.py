@@ -1,89 +1,70 @@
-from flask import Flask, jsonify, request
+import serial
+import time
 import paho.mqtt.client as mqtt
+import re
 
-app = Flask(__name__)
+ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)
+time.sleep(2)
 
-car_running = False  # Car status
-distance_value = None  # Shared variable for distance
-velocity_value = None  # Shared variable for velocity
-dummy_distance = 20
-dummy_velocity = 5
+broker_address = "192.168.5.2"
+client = mqtt.Client()
+client.connect(broker_address)
 
-# MQTT Settings
-MQTT_BROKER = "170.10.20.2"
-MQTT_PORT = 1883
-MQTT_TOPIC_PREFIX = "arduino/"
+pattern = re.compile(r"Distance\s*(-?\d+(?:[.,]\d+)?),\s*Velocity\s*(-?\d+(?:[.,]\d+)?)")
+dist = "0"
+vel = "0"
+max_dist = 100
 
-def on_connect(client, userdata, flags, rc):
-    print("Connected with result code " + str(rc))
+def connect_mqtt():
+	def on_connect(client, userdata, flags, rc):
+		if rc == 0:
+			print("Connected to MQTT Broker")
+		else:
+			print("Failed to connect, return code %d\n", rc)
 
-def publish_mqtt(topic, payload):
-    client = mqtt.Client()
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    client.publish(topic, payload)
-    client.disconnect()
+	client.on_connect = on_connect
+	client.connect(broker_address, 1883, 60)
 
-@app.route('/distance', methods=['GET'])
-def get_distance():
-    global distance_value
-    if distance_value is not None:
-        return jsonify({'distance': distance_value})
-    else:
-        return jsonify({'error': 'Distance value not available'})
+def publish_message(client, topic, message):
+	result = client.publish(topic, message)
+	status = result[0]
+	if status == 0:
+		print(f"Sent `{message}` to topic `{topic}`")
+	else:
+		print(f"Failed to send message to topic {topic}")
 
-@app.route('/velocity', methods=['GET'])
-def get_velocity():
-    global velocity_value
-    if velocity_value is not None:
-        return jsonify({'velocity': velocity_value})
-    else:
-        return jsonify({'error': 'Velocity value not available'})
+def time_to_hit():
+	global dist, vel
+	distFloat = float(dist)
+	velFloat = float(vel)
+	if velFloat > 0:
+		to_hit = distFloat / velFloat
+		return to_hit
+	else:
+		return 0
 
-@app.route('/control', methods=['POST'])
-def control_car():
-    global car_running
-    action = request.json.get('action')
-    if action == 'start':
-        car_running = True
-        publish_mqtt(MQTT_TOPIC_PREFIX + "control", "start")
-        return jsonify({'message': 'Car started'})
-    elif action == 'stop':
-        car_running = False
-        publish_mqtt(MQTT_TOPIC_PREFIX + "control", "stop")
-        return jsonify({'message': 'Car stopped'})
-    else:
-        return jsonify({'error': 'Invalid action'})
+def main():
+	connect_mqtt()
+	client.loop_start()
+	global dist, vel
 
-@app.route('/status', methods=['GET'])
-def get_car_status():
-    global car_running
-    status = 'running' if car_running else 'stopped'
-    publish_mqtt(MQTT_TOPIC_PREFIX + "status", status)
-    return jsonify({'status': status})
+	try:
+		while True:
+			line = ser.readline().decode('utf-8').rstrip()
+			match = pattern.search(line)
+			if match:
+				dist = match.group(1)
+				vel = match.group(2)
+				if float(dist) < max_dist:
+					to_hit = time_to_hit()
+					client.publish("sensor/dist", dist)
+					client.publish("sensor/vel", vel)
+					client.publish("topic/hit", to_hit)
+					#print(f"Published: Distance={dist} Velocity={vel} TimeToHit = {to_hit}")
+			else:
+				print(f"unexpected format: {line}")
+	except KeyboardInterrupt:
+		print("Script interrupted by user")
 
-# Update distance value
-def update_distance(new_distance):
-    global distance_value
-    distance_value = new_distance
-    publish_mqtt(MQTT_TOPIC_PREFIX + "distance", str(new_distance))
-
-# Update velocity value
-def update_velocity(new_velocity):
-    global velocity_value
-    velocity_value = new_velocity
-    publish_mqtt(MQTT_TOPIC_PREFIX + "velocity", str(new_velocity))
-
-# Calculate time to hit an obstacle
-@app.route('/time_to_obstacle', methods=['GET'])
-def calculate_time_to_obstacle():
-    global distance_value, velocity_value
-    if distance_value is not None and velocity_value is not None:
-        time_to_obstacle = distance_value / velocity_value
-        return jsonify({'time_to_obstacle': time_to_obstacle})
-    else:
-        return jsonify({'error': 'Distance or velocity value not available'})
-
-if __name__ == '__main__':
-    update_distance(dummy_distance)
-    update_velocity(dummy_velocity)
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+	main()
